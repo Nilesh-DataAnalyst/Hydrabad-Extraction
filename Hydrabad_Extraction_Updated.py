@@ -386,6 +386,47 @@ def classify_transaction(doc_type):
     else:
         return "Others"
 
+# ===== NEW FUNCTION FOR PROPERTY TYPE CLASSIFICATION =====
+def classify_property_type(description_text, boundaries_text=""):
+    """
+    Classify property type based on keywords in description.
+    Searches for 'flat', 'shop', etc. but excludes the Boundaries section.
+    """
+    if pd.isna(description_text) or not isinstance(description_text, str):
+        return "Others"
+    
+    # Get the text to search (excluding boundaries if provided)
+    search_text = description_text
+    if boundaries_text and isinstance(boundaries_text, str) and boundaries_text:
+        # Remove the boundaries section from the description text
+        search_text = search_text.replace(boundaries_text, "")
+    
+    # Convert to lowercase for case-insensitive search
+    search_text_lower = search_text.lower()
+    
+    # Check for flat (but not as part of other words like "flattened")
+    if re.search(r'\bflat\b', search_text_lower):
+        return "Flat"
+    
+    # Check for shop (but not as part of other words like "shopping")
+    if re.search(r'\bshop\b', search_text_lower):
+        return "Shop"
+    
+    # Check for apartment
+    if re.search(r'\bapartment\b', search_text_lower):
+        return "Apartment"
+    
+    # Check for house
+    if re.search(r'\bhouse\b', search_text_lower) and not re.search(r'house\s+site', search_text_lower):
+        return "House"
+    
+    # Check for land
+    if re.search(r'\bland\b', search_text_lower) or re.search(r'\bsite\b', search_text_lower):
+        return "Land"
+    
+    # Default
+    return "Others"
+
 # ---- Apply ----
 # Create output directory if it doesn't exist
 os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -445,6 +486,21 @@ if "Document Type" in df_out.columns:
     doc_type_idx = df_out.columns.get_loc("Document Type")
     df_out.insert(doc_type_idx + 1, "Transaction Type", transaction_values)
     
+    # ===== ADD PROPERTY TYPE COLUMN AFTER TRANSACTION TYPE =====
+    print("Adding Property Type column...")
+    # Create property type values by passing both description and boundaries
+    property_values = df_out.apply(
+        lambda row: classify_property_type(
+            row[src_col] if src_col in row else "", 
+            row["Boundires"] if "Boundires" in row else ""
+        ), 
+        axis=1
+    )
+    
+    # Insert Property Type column after Transaction Type
+    trans_type_idx = df_out.columns.get_loc("Transaction Type")
+    df_out.insert(trans_type_idx + 1, "Property Type", property_values)
+    
     # ===== PRINT TRANSACTION TYPE SUMMARY =====
     print("\n" + "="*60)
     print("TRANSACTION TYPE SUMMARY")
@@ -459,8 +515,17 @@ if "Document Type" in df_out.columns:
     print(f"Sales\tLease\tOthers\tTotal")
     print(f"{sales_count}\t{lease_count}\t{others_count}\t{total_count}")
     print("="*60)
+    
+    # ===== PRINT PROPERTY TYPE SUMMARY =====
+    print("\n" + "="*60)
+    print("PROPERTY TYPE SUMMARY")
+    print("="*60)
+    property_summary = df_out["Property Type"].value_counts()
+    for prop_type, count in property_summary.items():
+        print(f"{prop_type}: {count}")
+    print("="*60)
 else:
-    print("Warning: Document Type column not found. Cannot add Transaction Type.")
+    print("Warning: Document Type column not found. Cannot add Transaction Type and Property Type.")
 
 # ---- Debug: Show rows where Boundaries is still empty ----
 empty_boundaries = df_out[df_out["Boundires"] == ""]
@@ -501,10 +566,10 @@ if "Name of Parties Executant(EX) & Claimants(CL)" in df_out.columns:
     print("\nFirst 20 rows sample:")
     print(sample_df.to_string())
 
-# Debug: Show sample of Transaction Type
-print("\n--- Transaction Type Sample (first 20 rows) ---")
-if "Transaction Type" in df_out.columns:
-    trans_sample = df_out[["Document Type", "Transaction Type"]].head(20)
+# Debug: Show sample of Transaction Type and Property Type
+print("\n--- Transaction Type & Property Type Sample (first 20 rows) ---")
+if "Transaction Type" in df_out.columns and "Property Type" in df_out.columns:
+    trans_sample = df_out[["Document Type", "Transaction Type", "Property Type"]].head(20)
     print(trans_sample.to_string())
 
 # Save the output file
